@@ -719,4 +719,20 @@ pub mod testutils {
     pub use crate::window::Ledger;
     pub use soroban_sdk::auth::{Context, ContractContext};
     pub use soroban_sdk::{vec, Address, BytesN, Env, IntoVal, Symbol, TryFromVal, Val, Vec};
+    /// Decode and validate a host-provided policy ScVal without panicking.
+    ///
+    /// Conversion failures use the same stable error as policy validation.
+    /// Call from a contract context so address self-entry checks match production.
+    ///
+    /// # Errors
+    /// Returns Error::InvalidConfig when ScVal conversion or policy validation fails.
+    pub fn validate_policy_config_scval(
+        env: &Env,
+        scval: &soroban_sdk::xdr::ScVal,
+    ) -> Result<(), Error> {
+        let value = Val::try_from_val(env, scval).map_err(|_| Error::InvalidConfig)?;
+        let config =
+            PolicyConfig::try_from_val(env, &value).map_err(|_| Error::InvalidConfig)?;
+        super::validate_config(env, &config)
+    }
 }
