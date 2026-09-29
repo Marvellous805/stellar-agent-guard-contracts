@@ -29,6 +29,15 @@ cargo build --release --target wasm32v1-none
 cargo build --release --manifest-path tools/agent-tx/Cargo.toml
 ```
 
+## Dependency security and license checks
+
+Install cargo-deny once, then run the same advisory, license, dependency, and source checks used by CI:
+
+    cargo install --locked cargo-deny
+    cargo deny check --all-features
+
+The repository policy is in deny.toml. It allows MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, 0BSD, and ISC licenses, including development dependencies. New advisories and yanked crates fail the check. Keep advisory exceptions empty unless a maintainer approves one; every accepted advisory must include a concrete reason and a revisit by YYYY-MM-DD date, and should be removed once the dependency is fixed.
+
 ## Clean Build Artifacts
 
 ```bash

@@ -1,0 +1,32 @@
+# cargo-deny policy for the full Cargo dependency graph.
+# New RustSec advisories are errors unless a maintainer explicitly accepts them.
+[advisories]
+version = 2
+yanked = "deny"
+# Keep this empty by default. If an advisory must be temporarily accepted, add
+# { id = "RUSTSEC-YYYY-NNNN", reason = "<why it is not exploitable>; revisit by YYYY-MM-DD" }
+# with a concrete reason and review date. Remove the exception when the dependency is fixed.
+ignore = []
+
+[licenses]
+version = 2
+include-dev = true
+confidence-threshold = 0.8
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "0BSD",
+  "ISC",
+]
+
+[bans]
+# Existing transitive duplicates are reported while new policy exceptions are reviewed.
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
