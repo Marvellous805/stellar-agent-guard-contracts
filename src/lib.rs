@@ -731,8 +731,7 @@ pub mod testutils {
         scval: &soroban_sdk::xdr::ScVal,
     ) -> Result<(), Error> {
         let value = Val::try_from_val(env, scval).map_err(|_| Error::InvalidConfig)?;
-        let config =
-            PolicyConfig::try_from_val(env, &value).map_err(|_| Error::InvalidConfig)?;
+        let config = PolicyConfig::try_from_val(env, &value).map_err(|_| Error::InvalidConfig)?;
         super::validate_config(env, &config)
     }
 }
