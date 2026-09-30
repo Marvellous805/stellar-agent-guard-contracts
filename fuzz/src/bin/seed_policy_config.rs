@@ -1,7 +1,7 @@
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{xdr::ToXdr, Address, Env, Symbol, Vec};
-use stellar_agent_guard_contracts::PolicyConfig;
 use std::{fs, path::PathBuf};
+use stellar_agent_guard_contracts::PolicyConfig;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let env = Env::default();

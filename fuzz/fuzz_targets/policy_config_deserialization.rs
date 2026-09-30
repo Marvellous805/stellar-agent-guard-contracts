@@ -25,9 +25,7 @@ fuzz_target!(|data: &[u8]| {
 
     let env = Env::default();
     let contract_id = env.register_contract(None, PolicyEngine);
-    let result = env.as_contract(&contract_id, || {
-        validate_policy_config_scval(&env, &scval)
-    });
+    let result = env.as_contract(&contract_id, || validate_policy_config_scval(&env, &scval));
 
     assert!(
         matches!(result, Ok(()) | Err(Error::InvalidConfig)),
