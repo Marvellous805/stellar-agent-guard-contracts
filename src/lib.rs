@@ -1098,8 +1098,7 @@ pub mod testutils {
         {
             return false;
         }
-        let Some(ScVal::Vec(Some(recipient_caps))) =
-            scval_field(value, "recipient_window_caps")
+        let Some(ScVal::Vec(Some(recipient_caps))) = scval_field(value, "recipient_window_caps")
         else {
             return false;
         };
