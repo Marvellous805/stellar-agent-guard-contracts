@@ -1033,7 +1033,7 @@ pub mod testutils {
             if previous_key
                 .as_deref()
                 .is_some_and(|previous| previous >= key.as_str())
-                || !expected.iter().any(|field| key.as_str() == *field)
+                || !expected.contains(&key.as_str())
             {
                 return false;
             }
