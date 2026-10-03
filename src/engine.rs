@@ -503,6 +503,29 @@ mod tests {
         })
     }
 
+    /// `transfer_from` context per SPEC §6.2: `(from, spender, to, amount)`.
+    /// The `spender` occupies args[1] and must never be read as the recipient;
+    /// the recipient is args[2] and the amount is args[3].
+    fn transfer_from_ctx(
+        env: &Env,
+        asset: u8,
+        from: u8,
+        spender: u8,
+        to: u8,
+        amount: i128,
+    ) -> Context {
+        let mut args: Vec<Val> = Vec::new(env);
+        args.push_back(addr(env, from).into_val(env)); // args[0] from
+        args.push_back(addr(env, spender).into_val(env)); // args[1] spender
+        args.push_back(addr(env, to).into_val(env)); // args[2] recipient
+        args.push_back(amount.into_val(env)); // args[3] amount
+        Context::Contract(ContractContext {
+            contract: addr(env, asset),
+            fn_name: Symbol::new(env, "transfer_from"),
+            args,
+        })
+    }
+
     fn heartbeat_ctx(env: &Env, self_addr: &Address) -> Context {
         Context::Contract(ContractContext {
             contract: self_addr.clone(),
@@ -547,6 +570,94 @@ mod tests {
         let d = decide(&env, &sa, Some(&p), &alive(), &mut l, 1000, ctx.clone());
         assert!(matches!(d.first().unwrap(), Decision::Allowed));
         assert_eq!(l.total, 5);
+    }
+
+    // ── SPEC §6.2: `transfer_from` argument positions ─────────────────────
+    //
+    // `transfer_from(from, spender, to, amount)`: the recipient is args[2] and
+    // the amount is args[3] — the spender at args[1] is *not* the recipient.
+    // Reading the wrong offset would check the allowlist against the spender
+    // (letting funds reach an unlisted destination) and debit the window with
+    // an address. These tests pin the offsets with cases where swapping them
+    // would change the verdict.
+
+    #[test]
+    fn transfer_from_extracts_recipient_from_args_2_and_amount_from_args_3() {
+        let env = Env::default();
+        let sa = self_addr(&env);
+        let mut p = base_policy(&env);
+        p.allow_any_recipient = true;
+        // from=9, spender=7, recipient=2, amount=5.
+        let ctx = transfer_from_ctx(&env, 1, 9, 7, 2, 5);
+
+        let parsed = parse_call(&env, &sa, &ctx, &p);
+        assert!(
+            matches!(parsed, ParsedCall::AssetTransfer { .. }),
+            "transfer_from must parse as a fully-enforceable AssetTransfer"
+        );
+        if let ParsedCall::AssetTransfer { to, amount, .. } = parsed {
+            assert_eq!(
+                to,
+                addr(&env, 2),
+                "recipient must come from args[2], not the spender at args[1]"
+            );
+            assert_eq!(amount, 5, "amount must come from args[3]");
+        }
+    }
+
+    #[test]
+    fn transfer_from_checks_the_recipient_not_the_spender() {
+        let env = Env::default();
+        let sa = self_addr(&env);
+        // Allowlist is [addr(2)]; the spender addr(7) is deliberately NOT listed.
+        let mut p = base_policy(&env);
+        p.window_cap = 100;
+        let mut l = Ledger::empty(&env);
+        // Recipient args[2]=addr(2) is allowlisted even though spender
+        // args[1]=addr(7) is not.
+        let ctx = vec![&env, transfer_from_ctx(&env, 1, 9, 7, 2, 5)];
+
+        let d = decide(&env, &sa, Some(&p), &alive(), &mut l, 1000, ctx.clone());
+        assert!(matches!(d.first().unwrap(), Decision::Allowed));
+        assert_eq!(l.total, 5, "the window is debited with the args[3] amount");
+    }
+
+    #[test]
+    fn transfer_from_swapped_offsets_would_block_the_wrong_address() {
+        let env = Env::default();
+        let sa = self_addr(&env);
+        // Allowlist is [addr(2)].
+        let p = base_policy(&env);
+        let mut l = Ledger::empty(&env);
+        // Swap the middle two: the *unlisted* addr(7) is now args[2] (recipient)
+        // and the allowlisted addr(2) is args[1] (spender). An off-by-one that
+        // read the recipient from args[1] would (wrongly) allow this.
+        let ctx = vec![&env, transfer_from_ctx(&env, 1, 9, 2, 7, 5)];
+
+        let d = decide(&env, &sa, Some(&p), &alive(), &mut l, 1000, ctx.clone());
+        assert!(matches!(
+            d.first().unwrap(),
+            Decision::Blocked(Error::RecipientNotAllowed)
+        ));
+    }
+
+    #[test]
+    fn transfer_from_reads_amount_from_args_3_for_the_cap() {
+        let env = Env::default();
+        let sa = self_addr(&env);
+        let mut p = base_policy(&env);
+        p.allow_any_recipient = true;
+        p.per_tx_cap = 10;
+        let mut l = Ledger::empty(&env);
+        // The amount lives at args[3]=50 and exceeds the cap; args[2] is an
+        // address, not a number, so an off-by-one would not see 50 here.
+        let ctx = vec![&env, transfer_from_ctx(&env, 1, 9, 7, 2, 50)];
+
+        let d = decide(&env, &sa, Some(&p), &alive(), &mut l, 1000, ctx.clone());
+        assert!(matches!(
+            d.first().unwrap(),
+            Decision::Blocked(Error::PerTxCapExceeded)
+        ));
     }
 
     #[test]
@@ -883,6 +994,7 @@ mod tests {
     }
 
     #[test]
+    /// SPEC §6.3: `fns: None` allows any fn on that contract.
     fn protocol_and_function_allowlists() {
         let env = Env::default();
         let sa = self_addr(&env);
@@ -937,6 +1049,164 @@ mod tests {
             .unwrap(),
             Decision::Blocked(Error::UnknownContract)
         ));
+    }
+
+    #[test]
+    /// SPEC §6.3: `fns: None` wildcard — any fn on the listed contract is allowed.
+    fn protocol_fns_none_allows_any_fn() {
+        let env = Env::default();
+        let sa = self_addr(&env);
+        let mut p = base_policy(&env);
+        p.protocols = vec![
+            &env,
+            ProtocolRule {
+                contract: addr(&env, 3),
+                fns: None,
+            },
+        ];
+        let mut l = Ledger::empty(&env);
+        assert!(matches!(
+            decide(
+                &env,
+                &sa,
+                Some(&p),
+                &alive(),
+                &mut l,
+                1000,
+                vec![&env, proto_ctx(&env, 3, "swap")]
+            )
+            .first()
+            .unwrap(),
+            Decision::Allowed
+        ));
+        assert!(matches!(
+            decide(
+                &env,
+                &sa,
+                Some(&p),
+                &alive(),
+                &mut l,
+                1000,
+                vec![&env, proto_ctx(&env, 3, "anything_else")]
+            )
+            .first()
+            .unwrap(),
+            Decision::Allowed
+        ));
+    }
+
+    #[test]
+    /// SPEC §6.3: listed fn allowed.
+    fn protocol_listed_fn_allowed() {
+        let env = Env::default();
+        let sa = self_addr(&env);
+        let mut p = base_policy(&env);
+        p.protocols = vec![
+            &env,
+            ProtocolRule {
+                contract: addr(&env, 3),
+                fns: Some(vec![&env, Symbol::new(&env, "swap")]),
+            },
+        ];
+        let mut l = Ledger::empty(&env);
+        assert!(matches!(
+            decide(
+                &env,
+                &sa,
+                Some(&p),
+                &alive(),
+                &mut l,
+                1000,
+                vec![&env, proto_ctx(&env, 3, "swap")]
+            )
+            .first()
+            .unwrap(),
+            Decision::Allowed
+        ));
+    }
+
+    #[test]
+    /// SPEC §6.3: unlisted fn on a listed contract → `FunctionNotAllowed`.
+    fn protocol_unlisted_fn_denied() {
+        let env = Env::default();
+        let sa = self_addr(&env);
+        let mut p = base_policy(&env);
+        p.protocols = vec![
+            &env,
+            ProtocolRule {
+                contract: addr(&env, 3),
+                fns: Some(vec![&env, Symbol::new(&env, "swap")]),
+            },
+        ];
+        let mut l = Ledger::empty(&env);
+        assert!(matches!(
+            decide(
+                &env,
+                &sa,
+                Some(&p),
+                &alive(),
+                &mut l,
+                1000,
+                vec![&env, proto_ctx(&env, 3, "drain")]
+            )
+            .first()
+            .unwrap(),
+            Decision::Blocked(Error::FunctionNotAllowed)
+        ));
+    }
+
+    #[test]
+    /// SPEC §6.3: contract not in protocols → `UnknownContract`.
+    fn protocol_unknown_contract_denied() {
+        let env = Env::default();
+        let sa = self_addr(&env);
+        let mut p = base_policy(&env);
+        p.protocols = vec![
+            &env,
+            ProtocolRule {
+                contract: addr(&env, 3),
+                fns: None,
+            },
+        ];
+        let mut l = Ledger::empty(&env);
+        assert!(matches!(
+            decide(
+                &env,
+                &sa,
+                Some(&p),
+                &alive(),
+                &mut l,
+                1000,
+                vec![&env, proto_ctx(&env, 4, "swap")]
+            )
+            .first()
+            .unwrap(),
+            Decision::Blocked(Error::UnknownContract)
+        ));
+    }
+
+    #[test]
+    /// SPEC §6.3: allowlist classification happens before arg inspection —
+    /// a protocol contract named like an SAC is not parsed as a transfer.
+    fn protocol_classification_precedes_arg_inspection() {
+        let env = Env::default();
+        let sa = self_addr(&env);
+        let mut p = base_policy(&env);
+        // Protocol contract 3 is NOT in cfg.assets, but is in cfg.protocols.
+        p.protocols = vec![
+            &env,
+            ProtocolRule {
+                contract: addr(&env, 3),
+                fns: None,
+            },
+        ];
+        let mut l = Ledger::empty(&env);
+        // Call named "transfer" on protocol contract 3 with SAC-shaped args.
+        // Must be classified as Protocol (allowed), not AssetTransfer.
+        let ctx = vec![&env, transfer_ctx(&env, 3, 2, 5)];
+        let d = decide(&env, &sa, Some(&p), &alive(), &mut l, 1000, ctx.clone());
+        assert!(matches!(d.first().unwrap(), Decision::Allowed));
+        assert_eq!(l.total, 0);
     }
 
     #[test]
