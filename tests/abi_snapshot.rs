@@ -57,7 +57,7 @@ fn normalize_sig(text: &str) -> String {
         .replace(",)", ")")
 }
 
-/// Contract entrypoints from the PolicyEngine implementation plus the
+/// Contract entrypoints from the `PolicyEngine` implementation plus the
 /// host-invoked `__check_auth` method. Restrict scanning to those impl blocks
 /// so feature-gated `testutils` helpers do not appear in the Soroban ABI.
 fn extract_functions(src: &str) -> Vec<String> {
